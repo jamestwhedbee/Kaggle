@@ -1,0 +1,286 @@
+---
+title: "Titanic Survivors"
+author: "James Whedbee"
+date: "October 23, 2015"
+output: html_document
+---
+
+
+```{r,include=FALSE}
+library(dplyr)
+library(rpart)
+library(randomForest)
+library(party)
+```
+
+##Overview
+
+The following is an attempt to predict survival of passengers on the Titanic. The data available for use is as follows:
+
+```{r,echo=FALSE}
+    rawTrain <- read.csv("~/Kaggle/Titanic/train.csv")
+    str(rawTrain)
+```
+
+SPECIAL NOTES:
+
+Pclass is a proxy for socio-economic status: 1st ~ Upper; 2nd ~ Middle; 3rd ~ Lower
+
+SibSp refers to the number of siblings or spouses
+
+Parch refers to the number of parents or children
+
+Since age was not available for all passengers, missing age values were projected using a linear model composed of number of siblings/spouses, number of parents/children, and class. For the rest of the paper, any mention of Age is actually referring to the projected age.
+
+\newpage
+
+##Primary predictors - Sex and Class
+
+Starting from nothing, correlations with survival will give us a rough sense of the relative importance of variables.
+```{r,echo=FALSE}
+
+cleanTitanicFrame <- function(frame){
+    #make factors numeric when categorical
+    frame[,"Sex"] <- as.numeric(frame[,"Sex"])
+    frame[,"Embarked"] <- as.numeric(frame[,"Embarked"])
+    
+    #Account for missing age values. Correlations show that best predictors are
+    #Pclass, SibSp, and Parch are best predictors
+    model <- glm("Age~SibSp+Parch+Pclass",data=frame)
+    frame <- mutate(frame,projAge=coef(model)[1]+coef(model)[2]*frame$SibSp+coef(model)[3]*frame$Parch+coef(model)[4]*frame$Pclass)
+    frame <- mutate(frame,projAge=ifelse(is.na(frame$Age),frame$projAge,frame$Age))
+    
+    #drop foctors with no intuitive categorical meaning
+    frame[,!names(frame) %in% c("PassengerId","Name","Ticket","Cabin")]
+    
+}
+
+getCorrelations <- function(frame, column,use="complete.obs"){
+    # Correlates one columns of a data frame with the others.
+    #
+    # Args:
+    #   frame:  Data frame with variables in question
+    #   column: Column used as main correlate
+    #   use:  See ?cor
+    # Returns:
+    #   Correlations for every other variable against the specified variable
+    # Assumes:
+    #   Data frame must be entirely numeric
+    correl <- cor(frame,use=use)[-which(names(frame) %in% c(column)),column]
+    correl[order(abs(correl),decreasing=TRUE)]
+}
+
+    train <- cleanTitanicFrame(rawTrain)
+    getCorrelations(train,"Survived")
+```
+
+Sex, Pclass, and Fare jump out as the three likely predictors. Attempting to model survival using Sex, Pclass, and Fare in a logistic regression shows that both Sex and Pclass improve model fit, but Fare does not.
+```{r,echo=FALSE}
+    
+    model1 <- glm("Survived~Sex",family=binomial,data=train)
+    model2 <- update(model1, . ~ . + Pclass)
+    model3 <- update(model2, . ~ . + Fare)
+    anova(model1,model2,model3,test="LR")
+    
+```
+A likely explanation of this is the high correlation between Pclass and Fare. Fare doesn't ostensibly provide any insight not provided by Pclass.
+```{r,echo=FALSE}
+    cor(train$Pclass,train$Fare)
+```
+
+Low correlation across the entire sample does not necessarily mean a variable will not add value to the model. As shown below, there are several more terms that add significant value to the model.
+
+```{r,echo=FALSE}
+    
+    model1 <- glm("Survived~Sex",family=binomial,data=train)
+    model2 <- update(model1, . ~ . + Pclass)
+    model3 <- update(model2, . ~ . + projAge)
+    model4 <- update(model3, . ~ . + SibSp)
+    model5 <- update(model4, . ~ . + Sex*Pclass)
+    anova(model1,model2,model3,model4,model5,test="LR")
+
+```
+
+\newpage
+
+##Secondary Predictors - Age and Siblings
+
+How can we explain the effect of Age and SibSp on the model? Why is the interaction term between Sex and Pclass important?
+
+To answer these questions, let's look at a decision tree that takes Sex and Pclass into account.
+
+Here, we see that 94.7% of 1st and 2nd class women survived versus 50% of 3rd class women. Additionally, 14% of 2nd and 3rd class men survived versus 36.9% of 1st class men. Two things are clear from this tree:
+
+* Pclass matters much more for women than for men, explaining the importance of the interaction term
+* To improve the model, our focus should be on 3rd class women and 1st class men.
+
+```{r,echo=FALSE}
+    par(mar=c(0,0,0,0))
+    tree1 <- rpart("Survived~Sex+Pclass",data=train)
+    plot(tree1)
+    text(tree1)
+```
+
+\newpage
+
+Let's subset the data into our new groups of interest and re-correlate with survival.
+```{r,echo=FALSE}
+    
+    poorWomen <- train[(train$Sex<1.5)&(train$Pclass>=2.5),-which(names(train) %in% c("Sex","Pclass"))]
+    richMen <- train[(train$Sex>=1.5)&(train$Pclass<1.5),-which(names(train) %in% c("Sex","Pclass"))]
+
+```
+
+###1st class men
+```{r,echo=FALSE}
+    getCorrelations(richMen,"Survived")
+        hist(richMen$projAge[richMen$Survived==0],col=rgb(1,0,0,0.5),ylim=c(0,30),xlab="Age",ylab="Men",main="Age of 1st Class Men, Split by Survival",xlim = c(0,100),breaks=c(0,10,20,30,40,50,60,70,80,90))
+    hist(richMen$projAge[richMen$Survived==1],col=rgb(0,0,1,0.5),add=T,breaks=c(0,10,20,30,40,50,60,70,80,90))
+    legend("topright", c("Survived", "Died"), col=c("blue", "red"),lwd=5)
+```
+
+We can now more easily see why Age improved the model. Within the group of 1st class men, children are more likely to survive and older men are more likely to die.
+
+\newpage
+
+###3rd class women
+```{r,echo=FALSE}
+    getCorrelations(poorWomen,"Survived")
+    
+    hist(poorWomen$SibSp[poorWomen$Survived==0],col=rgb(1,0,0,0.5),ylim=c(0,10),xlab="Siblings",ylab="Women",main="Siblings for 3rd Class Women, Split by Survival",breaks=c(0,1,2,3,4,5,6,7,8))
+    hist(poorWomen$SibSp[poorWomen$Survived==1],col=rgb(0,0,1,0.5),add=T,breaks=c(0,1,2,3,4,5,6,7,8))
+    legend("topright", c("Survived", "Died"), col=c("blue", "red"),lwd=5)
+    
+```
+
+We can now more easily see why SibSp improved the model. Within the group of 3rd class women, those with fewer siblings are more likely to survive. There also does appear to be an effect from Fare and Embarked emerge in this subset. However, this investigation will not be pursued in this paper.
+
+\newpage
+
+##A (More) Complete Decision Tree
+
+Let's add our secondary predictors to our decision tree:
+
+```{r,echo=FALSE}
+    
+    par(mar=c(0,0,0,0))
+    tree2 <- rpart("Survived~Sex+Pclass+Age+SibSp",data=train)
+    plot(tree2)
+    text(tree2)
+
+```
+
+Here, we can see the effect of Age on 1st class men and SibSp on 3rd class women. We can also see that in fact, both Age and SibSp have an effect on our other groups as well.
+
+The large groups still with room for improvement at this point are shown below along with the group survival correlations.
+
+* 1st class men over the age of 6.5
+
+```{r,echo=FALSE}
+    richOldMen <- train[(train$Sex>=1.5)&(train$projAge>=6.5)&(train$Pclass<1.5),-which(names(train) %in% c("Sex","Pclass","Age","projAge"))]   
+    getCorrelations(richOldMen,"Survived")
+```
+  
+* 3rd class women under the age of 38.5 with 2 or fewer siblings  
+```{r,echo=FALSE}  
+    poorYoungWomen <- train[(train$Sex<1.5)&(train$Pclass>=2.5)&(train$SibSp<2.5)&(train$projAge<38.5),-which(names(train) %in% c("Sex","Pclass","Age","projAge","SibSp"))]
+    getCorrelations(poorYoungWomen,"Survived")
+```
+
+There is no obvious improvement to be made for 1st class men over the age of 6.5.
+
+It is possible that accounting for embarkment could improve predictions for 3rd class women under the age of 38.5 with 2 or fewer siblings. However, this investigation will not be pursued in this paper.
+
+\newpage
+
+##Logistic Regression, Decision Tree, or Random Forest?
+
+Now that we know which variables we want to include, let's compare the relative success of these techniques on the train and test data sets.
+
+###Logistic Regression
+
+Below is the proportion of correct responses in the train set using logistic regression on Sex+Pclass+SibSp+projAge+Sex:Pclass.
+```{r,echo=FALSE}
+    trainLog <- mutate(train,rawLogit=predict(model5))
+    trainLog <- mutate(trainLog,prob=1/(1+exp(-trainLog$rawLogit)))
+    trainLog <- mutate(trainLog,projSurvived=ifelse(trainLog$prob>.5,1,0))
+    sum(trainLog$Survived==trainLog$projSurvived)/length(trainLog$Survived)
+```
+
+On the test data, this performs at about .77 correct.
+
+###Decision Tree
+
+Below is the proportion of correct responses in the train set using a decision tree on Sex+Pclass+SibSp+projAge.
+
+```{r,echo=FALSE}
+    tree <- rpart("Survived~Sex+Pclass+SibSp+projAge",data=train)
+    trainTree <- mutate(train,rawTree=predict(tree))
+    trainTree <- mutate(trainTree,projSurvived=ifelse(trainTree$rawTree>.5,1,0))
+    sum(trainTree$Survived==trainTree$projSurvived)/length(trainTree$Survived)
+```
+
+On the test data, this performs at about .75 correct.
+
+###Conditional Tree
+
+Below is the proportion of correct responses in the train set using a conditional inference tree on Sex+Pclass+SibSp+projAge.
+
+```{r,echo=FALSE}
+    ctree = ctree(as.factor(Survived) ~Sex+Pclass+SibSp+projAge, data=train)
+    trainCTree <- mutate(train,projSurvived=predict(ctree))
+    sum(trainCTree$Survived==trainCTree$projSurvived)/length(trainCTree$Survived)
+```
+
+On the test data, this performs at about .75 correct.
+
+
+###Random forest
+
+Below is the proportion of correct responses in the train set using a random forest on Sex+Pclass+SibSp+projAge.
+
+```{r,echo=FALSE}
+    forest <- randomForest(as.factor(Survived)~Sex+Pclass+SibSp+projAge, data=train)
+    trainForest <- mutate(train,projSurvived=predict(forest))
+    sum(trainForest$Survived==trainForest$projSurvived)/length(trainForest$Survived)
+```
+
+On the test data, this performs at about .75 correct.
+
+\newpage
+
+##Room for further improvement
+
+Embarkment's role in survival was not explored in this analysis. It had a weak, but statisticaly significant correlation with Survival across the entire population, as well as with 3rd class women.
+
+```{r,echo=FALSE}
+    
+    getCorrelations(train,"Survived")
+    getCorrelations(poorWomen,"Survived")
+    
+    hist(poorWomen$Embarked[poorWomen$Survived==0],col=rgb(1,0,0,0.5),xlab="Embarked",ylab="Women",main="Embarkments for 3rd Class Women, Split by Survival")
+    hist(poorWomen$Embarked[poorWomen$Survived==1],col=rgb(0,0,1,0.5),add=T)
+    legend("topleft", c("Survived", "Died"), col=c("blue", "red"),lwd=5)
+```
+
+\newpage
+
+Embarkment also potentially improves upon the regression model and can't be explained away as redundant because it is not as strongly correlated with Pclass as Fare was.
+
+```{r,echo=FALSE}
+    model1 <- glm("Survived~Sex",family=binomial,data=train)
+    model2 <- update(model1, . ~ . + Pclass)
+    model3 <- update(model2, . ~ . + projAge)
+    model4 <- update(model3, . ~ . + SibSp)
+    model5 <- update(model4, . ~ . + Sex*Pclass)
+    model6 <- update(model5, . ~ . + Embarked)
+    anova(model1,model2,model3,model4,model5,model6,test="LR")
+    
+    getCorrelations(train,"Embarked")
+    
+```
+
+It also does potentially improve upon the regression model and isn't as strongly correlated with Pclass as Fare was.
+
+Besides embarkment, certain variables were removed from the start. The marginal benefits of Name, Ticket, and Cabin were deemed too small to warrant a thoughtful translation of those fields for use in modeling. It is however always possible these fields do contain useful information which could improve the model.
+
