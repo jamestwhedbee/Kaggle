@@ -2,7 +2,7 @@
 title: "Titanic Survivors"
 author: "James Whedbee"
 date: "October 23, 2015"
-output: html_document
+output: pdf_document
 ---
 
 

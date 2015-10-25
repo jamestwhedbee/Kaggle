@@ -17,11 +17,6 @@ meanDigits <- function(){
         row.names(meanDigitFrame) <- NULL
     }
     
-    write.csv(predictions, "~/Kaggle/Digits/RandomForest.csv",row.names = FALSE) 
-    
-    predict <- cbind(apply(digitTrain[1:5000,-1],1,digitDiff),digitTrain[1:5000,1])
-    sum(predict[,1]==predict[,2])/length(predict[,1])
-    
     ImageId <- seq(28000)
     Label <- apply(digitTest,1,digitDiff)
     prediction <- data.frame(ImageId,Label)
