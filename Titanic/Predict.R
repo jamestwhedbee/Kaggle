@@ -43,8 +43,9 @@ predictTitanic <- function(){
 #     #Through exploratory analysis, it is apparent that poor children with siblings were more likely to die.
 #     test$Survived=ifelse((test$Parch>0)&(test$SibSp>2)&(test$Pclass==3),0,test$Survived)
     
-    ctree = ctree(as.factor(Survived)~Sex+Pclass+SibSp+projAge, data=train)
-    test <- mutate(test,Survived=predict(ctree,newdata=test))
+    mob <- mob(Survived~ SibSp + Parch + Embarked | Sex + Pclass + projAge, data=train,family=binomial("logit"))
+    test <- mutate(test,rawMob=predict(mob,newdata=test))
+    test <- mutate(test,Survived=ifelse(test$rawMob>.5,1,0))
     
     #Write submission to file
     submission <- cbind(rawTest["PassengerId"],test["Survived"])

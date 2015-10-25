@@ -209,18 +209,21 @@ Below is the proportion of correct responses in the train set using logistic reg
 
 On the test data, this performs at about .77 correct.
 
-###Decision Tree
+###Logistic Model Tree
 
-Below is the proportion of correct responses in the train set using a decision tree on Sex+Pclass+SibSp+projAge.
+Below is the proportion of correct responses in the train set using a logistic model tree partitioned on Sex+Pclass+projAge and leaves modeled with Parch+SibSp+Embarked.
 
-```{r,echo=FALSE}
-    tree <- rpart("Survived~Sex+Pclass+SibSp+projAge",data=train)
-    trainTree <- mutate(train,rawTree=predict(tree))
-    trainTree <- mutate(trainTree,projSurvived=ifelse(trainTree$rawTree>.5,1,0))
-    sum(trainTree$Survived==trainTree$projSurvived)/length(trainTree$Survived)
+```{r,echo=FALSE,include=FALSE}
+    mob <- mob(Survived~ SibSp + Parch + Embarked | Sex + Pclass + projAge, data=train,family=binomial("logit"))
+    trainMob <- mutate(train,rawMob=predict(mob))
+    trainMob <- mutate(trainMob,projSurvived=ifelse(trainMob$rawMob>.5,1,0))
 ```
 
-On the test data, this performs at about .75 correct.
+```{r,echo=FALSE}
+    sum(trainMob$Survived==trainMob$projSurvived)/length(trainMob$Survived)
+```
+
+On the test data, this performs at about .78 correct.
 
 ###Conditional Tree
 
