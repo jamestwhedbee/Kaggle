@@ -11,6 +11,7 @@ library(dplyr)
 library(rpart)
 library(randomForest)
 library(party)
+library(klaR)
 ```
 
 ##Overview
@@ -250,6 +251,19 @@ Below is the proportion of correct responses in the train set using a random for
 
 On the test data, this performs at about .75 correct.
 
+###Naive Bayes
+
+Below is the proportion of correct responses in the train set using a Naive Bayesian classifier on Sex+Pclass+Embarked
+
+```{r,echo=FALSE}
+    bayes  <- NaiveBayes(as.factor(Survived)~.,data=train[,c("Survived","Sex","Pclass","Embarked")])
+    projSurvived <- predict(bayes)$class
+    trainBayes <- mutate(train,projSurvived=projSurvived)
+    sum(trainBayes$Survived==trainBayes$projSurvived)/length(trainBayes$Survived)
+```
+
+On the test data, this performs at about .68
+
 \newpage
 
 ##Room for further improvement
@@ -282,8 +296,6 @@ Embarkment also potentially improves upon the regression model and can't be expl
     getCorrelations(train,"Embarked")
     
 ```
-
-It also does potentially improve upon the regression model and isn't as strongly correlated with Pclass as Fare was.
 
 Besides embarkment, certain variables were removed from the start. The marginal benefits of Name, Ticket, and Cabin were deemed too small to warrant a thoughtful translation of those fields for use in modeling. It is however always possible these fields do contain useful information which could improve the model.
 

@@ -7,7 +7,7 @@ predictTitanic <- function(){
     train <- cleanTitanicFrame(rawTrain)
     test <- cleanTitanicFrame(rawTest)
     
-    
+#     FOR EVALUATING PERFORMANCE ON TRAINING DATA    
 #     #Evaluate percentage of train set correct
 #     model <- glm("Survived~Sex+Pclass",family=binomial,data=train)
 #     train <- mutate(train,rawLogit=predict(model))
@@ -23,14 +23,7 @@ predictTitanic <- function(){
 #     sum(train$Survived==train$projSurvived)/length(train$Survived)
 
     
-    #TODO: analyze why failures failed
-    #rawTrain[(train$Survived!=train$projSurvived),]
-    
-    
-    #Correlations show that best predictors for Survival are Sex, PClass, Fare, Embarked
-    #Sex and Pclass are strongest. Fare is very highly correlated with Pclass.
-    #Maybe use Embarked, but it seems weird to matter in and of itself.
-    
+#     LOGISTIC REGRESSION ON TEST DATA    
 #     #Evaluate model and translate to 0/1
 #     model <- glm("Survived~Sex+Pclass",family=binomial,data=train)
 #     test <- mutate(test,rawLogit=predict(model,newdata = test))
@@ -43,6 +36,8 @@ predictTitanic <- function(){
 #     #Through exploratory analysis, it is apparent that poor children with siblings were more likely to die.
 #     test$Survived=ifelse((test$Parch>0)&(test$SibSp>2)&(test$Pclass==3),0,test$Survived)
     
+
+#   LOGISTIC MODEL TREE ON TEST DATA        
     mob <- mob(Survived~ SibSp + Parch + Embarked | Sex + Pclass + projAge, data=train,family=binomial("logit"))
     test <- mutate(test,rawMob=predict(mob,newdata=test))
     test <- mutate(test,Survived=ifelse(test$rawMob>.5,1,0))
