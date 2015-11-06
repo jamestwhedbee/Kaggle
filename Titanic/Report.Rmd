@@ -12,6 +12,7 @@ library(rpart)
 library(randomForest)
 library(party)
 library(klaR)
+library(adabag)
 ```
 
 ##Overview
@@ -201,7 +202,7 @@ Now that we know which variables we want to include, let's compare the relative 
 ###Logistic Regression
 
 Below is the proportion of correct responses in the train set using logistic regression on Sex+Pclass+SibSp+projAge+Sex:Pclass.
-```{r,echo=FALSE}
+```{r,echo=FALSE,cache=TRUE}
     trainLog <- mutate(train,rawLogit=predict(model5))
     trainLog <- mutate(trainLog,prob=1/(1+exp(-trainLog$rawLogit)))
     trainLog <- mutate(trainLog,projSurvived=ifelse(trainLog$prob>.5,1,0))
@@ -214,7 +215,7 @@ On the test data, this performs at about .77 correct.
 
 Below is the proportion of correct responses in the train set using a logistic model tree partitioned on Sex+Pclass+projAge and leaves modeled with Parch+SibSp+Embarked.
 
-```{r,echo=FALSE,include=FALSE}
+```{r,echo=FALSE,include=FALSE,cache=TRUE}
     mob <- mob(Survived~ SibSp + Parch + Embarked | Sex + Pclass + projAge, data=train,family=binomial("logit"))
     trainMob <- mutate(train,rawMob=predict(mob))
     trainMob <- mutate(trainMob,projSurvived=ifelse(trainMob$rawMob>.5,1,0))
@@ -230,7 +231,7 @@ On the test data, this performs at about .78 correct.
 
 Below is the proportion of correct responses in the train set using a conditional inference tree on Sex+Pclass+SibSp+projAge.
 
-```{r,echo=FALSE}
+```{r,echo=FALSE,cache=TRUE}
     ctree = ctree(as.factor(Survived) ~Sex+Pclass+SibSp+projAge, data=train)
     trainCTree <- mutate(train,projSurvived=predict(ctree))
     sum(trainCTree$Survived==trainCTree$projSurvived)/length(trainCTree$Survived)
@@ -243,7 +244,7 @@ On the test data, this performs at about .75 correct.
 
 Below is the proportion of correct responses in the train set using a random forest on Sex+Pclass+SibSp+projAge.
 
-```{r,echo=FALSE}
+```{r,echo=FALSE,cache=TRUE}
     forest <- randomForest(as.factor(Survived)~Sex+Pclass+SibSp+projAge, data=train)
     trainForest <- mutate(train,projSurvived=predict(forest))
     sum(trainForest$Survived==trainForest$projSurvived)/length(trainForest$Survived)
@@ -255,7 +256,7 @@ On the test data, this performs at about .75 correct.
 
 Below is the proportion of correct responses in the train set using a Naive Bayesian classifier on Sex+Pclass+Embarked
 
-```{r,echo=FALSE}
+```{r,echo=FALSE,cache=TRUE}
     bayes  <- NaiveBayes(as.factor(Survived)~.,data=train[,c("Survived","Sex","Pclass","Embarked")])
     projSurvived <- predict(bayes)$class
     trainBayes <- mutate(train,projSurvived=projSurvived)
@@ -263,6 +264,19 @@ Below is the proportion of correct responses in the train set using a Naive Baye
 ```
 
 On the test data, this performs at about .68
+
+##Adaboost
+
+Below is the proportion of correct responses in the train set using Adaboost on Sex+Pclass+SibSp+projAge+Parch+Fare+Embarked
+
+```{r,echo=FALSE,cache=TRUE}
+    trainAdaboost <- mutate(train,Survived=as.factor(Survived))
+    adaboost <- boosting(Survived~Sex+Pclass+SibSp+projAge, data=trainAdaboost)
+    trainAdaboost$projSurvived <- adaboost$class
+    sum(trainAdaboost$Survived==trainAdaboost$projSurvived)/length(trainAdaboost$Survived)
+```
+
+On the test data, this performs at about .73684.
 
 \newpage
 

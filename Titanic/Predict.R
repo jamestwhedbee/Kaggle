@@ -37,10 +37,16 @@ predictTitanic <- function(){
 #     test$Survived=ifelse((test$Parch>0)&(test$SibSp>2)&(test$Pclass==3),0,test$Survived)
     
 
-#   LOGISTIC MODEL TREE ON TEST DATA        
-    mob <- mob(Survived~ SibSp + Parch + Embarked | Sex + Pclass + projAge, data=train,family=binomial("logit"))
-    test <- mutate(test,rawMob=predict(mob,newdata=test))
-    test <- mutate(test,Survived=ifelse(test$rawMob>.5,1,0))
+# #   LOGISTIC MODEL TREE ON TEST DATA        
+#     mob <- mob(Survived~ SibSp + Parch + Embarked | Sex + Pclass + projAge, data=train,family=binomial("logit"))
+#     test <- mutate(test,rawMob=predict(mob,newdata=test))
+#     test <- mutate(test,Survived=ifelse(test$rawMob>.5,1,0))
+    
+#   ADABOOST ON TEST DATA
+    trainAdaboost <- mutate(train,Survived=as.factor(Survived))
+    adaboost <- boosting(Survived~Sex+Pclass+SibSp+projAge, data=trainAdaboost)
+    p <- predict(adaboost,newdata = test)
+    test$Survived <- p$class
     
     #Write submission to file
     submission <- cbind(rawTest["PassengerId"],test["Survived"])

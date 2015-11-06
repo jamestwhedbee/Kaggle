@@ -1,0 +1,142 @@
+---
+title: "Walmart Trip Types"
+author: "James Whedbee"
+date: "October 27, 2015"
+output: pdf_document
+geometry: margin=.75 in
+---
+```{r setup, include=FALSE}
+library(knitr)
+library(caret)
+library(klaR)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(xgboost)
+```
+
+##Exploratory Analysis
+
+The following is an attempt to predict trip type of Walmart visits. The data available for use is as follows:
+
+* Trip Type - a categorical id representing the type of shopping trip the customer made. This is the ground truth that we are predicting. TripType_999 is an "other" category.
+* VisitNumber - Unique identifier for a visit
+* Weekday - the weekday of the visit
+* Upc - the UPC number of the product purchased
+* ScanCount -the number of the given item that was purchased. A negative value indicates a product return.
+* DepartmentDescription - a high-level description of the item's department
+* FinelineNumber - a more refined category for each of the products, created by Walmart
+
+```{r,cache=TRUE,echo=FALSE}
+
+#High level summary
+walmartRawTrain <- read.csv("~/Kaggle/Walmart/train.csv")
+walmartRawTrain$Weekday <- factor(walmartRawTrain$Weekday, levels= c("Monday", 
+                                         "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday","Sunday"))
+str(walmartRawTrain)
+summary(walmartRawTrain)
+```
+
+```{r,cache=TRUE,echo=FALSE}
+#Randomly select training, remove NA values for fine line
+
+nullIndex <- is.na(walmartRawTrain$FinelineNumber)&(walmartRawTrain$DepartmentDescription=="NULL")
+pharmIndex <- is.na(walmartRawTrain$FinelineNumber)&(walmartRawTrain$DepartmentDescription=="PHARMACY RX")
+
+walmartRawTrain$FinelineNumber[nullIndex] <- -1
+walmartRawTrain$FinelineNumber[pharmIndex] <- -2
+
+set.seed(0) 
+walmartIndex <- createDataPartition(walmartRawTrain$TripType,list=FALSE,p=.5)
+walmartTrain <- walmartRawTrain[walmartIndex,]
+walmartTest <- walmartRawTrain[-walmartIndex,]
+
+```
+
+\newpage
+
+Below, we have visualized the relationship between several predictors and trip type. In the plots below, the black line represents the proportion of trip types for the entire training set, while the colored lines are split by a predictor variable. For visualization purposes, a trip type of 999 - Other has been transformed to 45 (one more than the greatest vakue is use).
+
+```{r fig.width=7, fig.height=2.5, echo=FALSE, cache=TRUE}
+#Overview of Trip Types
+g1 <- ggplot(transform(walmartTrain,TripType=sapply(walmartTrain$TripType,function(x){ifelse(x==999,45,x)})),aes(TripType)) + geom_density(aes(color=DepartmentDescription)) + geom_density(size=1) + guides(color=FALSE,size=FALSE) + ggtitle("Trip Type Densities per Department")
+
+g2 <- ggplot(transform(walmartTrain,TripType=sapply(walmartTrain$TripType,function(x){ifelse(x==999,45,x)})),aes(TripType)) + geom_density(aes(color=Weekday)) + geom_density(size=1) + guides(color=FALSE,size=FALSE) + ggtitle("Trip Type Densities per Weekday")
+
+g3 <- ggplot(transform(walmartTrain,TripType=sapply(walmartTrain$TripType,function(x){ifelse(x==999,45,x)})),aes(TripType)) + geom_density(aes(color=as.factor(ScanCount))) + geom_density(size=1) + guides(color=FALSE,size=FALSE) + ggtitle("Trip Type Densities per Scan Count")
+
+g4 <- ggplot(transform(walmartTrain,TripType=sapply(walmartTrain$TripType,function(x){ifelse(x==999,45,x)})),aes(TripType)) + geom_density(aes(color=as.factor(FinelineNumber))) + geom_density(size=1) + guides(color=FALSE,size=FALSE) + ggtitle("Trip Type Densities per Fineline Number")
+
+print(g1)
+print(g2)
+print(g3)
+print(g4)
+
+```
+\newpage
+
+##Including variables in predictive models
+
+Below, we discuss the variables one by one, and decide which we will be using in prediction.
+
+* Trip Type - Response variable
+* VisitNumber - All records sharing a visit number share a trip type. We need to be using all lines with the same visit number to decide on the trip type.
+* Weekday - From the plots above it is clear that weekday does not have a bearing on trip type. We will not be using weekday in prediction.
+* Upc - There are 97715 unique values in 647054 records in the training data. Due to the complexities of managing these values, we will not be using them in prediction.
+* ScanCount - From the plots above we are able to tell that returns tend to be categorized as other. This fact alone makes scan count worth including in prediction.
+* DepartmentDescription - From the plots above, it is clear that certain department descriptions are associated with certain trip types. We will be using this in prediction.
+* FinelineNumber - From the plots above, it is clear that certain fine line numbers are associated with certain trip types. We will have to deal with the NA values for fine line.
+
+To summarize, we will be using scan count, department description, and fine line number to predict a trip type for each visit.
+
+To handle NA for fineline, we will add two new values: -1 and -2. The only two reasons for NA are NULL and PHARMACY RX in the department description, so we will represent those as -1 and -2 respectively.
+
+##Flattening visits
+
+The data is given with multiple lines per visit, but we ultimately want to make our predictions on a per visit basis.
+
+To accompish this, we will first calculate probabilities for each line and then average those probabilities across the entire visit.
+
+We will be calculating the probabilities using a Naive Bayes Classifier.
+
+##TODO: XGBOOST or ANN
+
+\newpage
+
+```{r,echo=FALSE}
+#AVERAGE LINES
+
+# walmartRawValidate <- read.csv("~/Kaggle/Walmart/test.csv")
+# nullIndex <- is.na(walmartRawValidate$FinelineNumber)&(walmartRawValidate$DepartmentDescription=="NULL")
+# pharmIndex <- is.na(walmartRawValidate$FinelineNumber)&(walmartRawValidate$DepartmentDescription=="PHARMACY RX")
+# 
+# walmartRawValidate$FinelineNumber[nullIndex] <- -1
+# walmartRawValidate$FinelineNumber[pharmIndex] <- -2
+# 
+# temp <- cbind(walmartRawValidate,TripType=NA)
+# comboData <- rbind(walmartTrain,temp)
+# comboData$TripType <- as.factor(comboData$TripType)
+# comboData$ScanCount <- as.factor(comboData$ScanCount)
+# comboData$FinelineNumber <- as.factor(comboData$FinelineNumber)
+# factoredData <- comboData[!is.na(comboData$TripType),]
+# 
+# bayes  <- NaiveBayes(TripType~ScanCount+DepartmentDescription+FinelineNumber,data=factoredData)
+# 
+# predictBayes <- predict(bayes,newdata=walmartRawValidate)
+# posterior <- predictBayes$posterior
+# 
+# walmartValidate <-as.data.frame(cbind(VisitNumber=walmartRawValidate$VisitNumber,posterior))
+# #Turn NA's to 0?
+# walmartValidate[is.na(walmartValidate)] <- 0
+# 
+# #Average every probability
+# meanP <- aggregate(walmartValidate,FUN=mean,by=list(walmartValidate$VisitNumber))
+# meanP <- meanP[,-1]
+# 
+# colnames(meanP) <- c("VisitNumber","TripType_3","TripType_4","TripType_5","TripType_6","TripType_7","TripType_8","TripType_9","TripType_12","TripType_14","TripType_15","TripType_18","TripType_19","TripType_20","TripType_21","TripType_22","TripType_23","TripType_24","TripType_25","TripType_26","TripType_27","TripType_28","TripType_29","TripType_30","TripType_31","TripType_32","TripType_33","TripType_34","TripType_35","TripType_36","TripType_37","TripType_38","TripType_39","TripType_40","TripType_41","TripType_42","TripType_43","TripType_44","TripType_999")
+# options(scipen=999)
+# write.csv(meanP,"~/Kaggle/Walmart/avgNaiveBayes.csv",row.names = FALSE)
+
+```
+

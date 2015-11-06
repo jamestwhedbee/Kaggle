@@ -1,0 +1,10 @@
+base
+lattice
+ggplot2
+caret
+MASS
+klaR
+dplyr
+gridExtra
+knitr
+xgboost
