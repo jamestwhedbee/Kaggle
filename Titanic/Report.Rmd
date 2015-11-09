@@ -280,6 +280,40 @@ On the test data, this performs at about .73684.
 
 \newpage
 
+##Ensemble
+
+Now, we will stack several models without self-selecting features. This ensemble method will have lees intuition behind it but may prove more powerful than our individual methods.
+
+```{r,echo=FALSE,cache=TRUE}
+    #Create Training Set
+    inTrain = createDataPartition(train$Survived, p = 2/3)[[1]]
+    training = train[ inTrain,]
+    testing = train[-inTrain,]
+    
+    #Train using random forest, boosting, linear discriminant analysis, and logistic regression
+    forest <- train(as.factor(Survived)~Pclass+Sex+SibSp+projAge+Parch+Fare+Embarked,method="rf",data=training)
+    boost <- train(as.factor(Survived)~Sex+Pclass+SibSp+projAge+Parch+Fare+Embarked,method="gbm",data=training,verbose=FALSE)
+    linearD <- train(as.factor(Survived)~Sex+Pclass+SibSp+projAge+Parch+Fare+Embarked,method="lda",data=training)
+    logistic <- train(as.factor(Survived)~Sex+Pclass+projAge+SibSp+Sex*Pclass+Parch+Fare+Embarked,method="LogitBoost",data=training)
+    pred1 <- predict(forest,testing)
+    pred2 <- predict(boost,testing)
+    pred3 <- predict(linearD,testing)
+    pred4 <- predict(logistic,testing)
+    
+    #stack predictions and compare
+    predDF <- data.frame(pred1,pred2,pred3,pred4,Survived=testing$Survived)
+    combModelFit <- train(as.factor(Survived)~.,method="rf",data=predDF)
+    combPred <- predict(combModelFit,predDF)
+    predDF$comb <- combPred
+    caret::confusionMatrix(predDF$pred1,predDF$Survived)$overall
+    caret::confusionMatrix(predDF$pred2,predDF$Survived)$overall
+    caret::confusionMatrix(predDF$pred3,predDF$Survived)$overall
+    caret::confusionMatrix(predDF$pred4,predDF$Survived)$overall
+    caret::confusionMatrix(predDF$comb,predDF$Survived)$overall
+```
+
+\newpage
+
 ##Room for further improvement
 
 Embarkment's role in survival was not explored in this analysis. It had a weak, but statisticaly significant correlation with Survival across the entire population, as well as with 3rd class women.

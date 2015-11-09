@@ -1,4 +1,6 @@
 library(dplyr)
+library(caret)
+library(adabag)
 
 predictTitanic <- function(){
     rawTrain <- read.csv("~/Kaggle/Titanic/train.csv")
@@ -68,7 +70,64 @@ cleanTitanicFrame <- function(frame){
     frame <- mutate(frame,projAge=coef(model)[1]+coef(model)[2]*frame$SibSp+coef(model)[3]*frame$Parch+coef(model)[4]*frame$Pclass)
     frame <- mutate(frame,projAge=ifelse(is.na(frame$Age),frame$projAge,frame$Age))
     
+    #Account for missing fare values
+    frame$Fare[is.na(frame$Fare)] <- median(frame$Fare,na.rm=TRUE)
+    
     #drop foctors with no categorical meaning
     frame[,!names(frame) %in% c("PassengerId","Name","Ticket","Cabin")]
+    
+}
+
+ensemblePrediction <- function(){
+    rawTrain <- read.csv("~/Kaggle/Titanic/train.csv")
+    rawTest <- read.csv("~/Kaggle/Titanic/test.csv")
+    
+    train <- cleanTitanicFrame(rawTrain)
+    test <- cleanTitanicFrame(rawTest)
+    
+#     inTrain = createDataPartition(train$Survived, p = 2/3)[[1]]
+#     train1 = train[ inTrain,]
+#     train2 = train[-inTrain,]
+    
+    #Train using random forest, boosting, linear discriminant analysis, and logistic regression
+    forest <- train(as.factor(Survived)~Sex+Pclass+SibSp+projAge+Parch+Fare+Embarked,method="rf",data=train)
+    gboost <- train(as.factor(Survived)~Sex+Pclass+SibSp+projAge+Parch+Fare+Embarked,method="gbm",data=train,verbose=FALSE)
+    logitTree <- train(as.factor(Survived)~Sex+Pclass+SibSp+projAge+Parch+Fare+Embarked,method="LMT",data=train)
+    lda <- train(as.factor(Survived)~Sex+Pclass+projAge+SibSp+Parch+Fare+Embarked,method="lda",data=train)
+    xgb <- train(as.factor(Survived)~Sex+Pclass+projAge+SibSp+Parch+Fare+Embarked,method="xgbLinear",data=train)
+    
+    #CHOOSE BEST MODELS
+#     pred1 <- predict(forest,train2)
+#     pred2 <- predict(gboost,train2)
+#     pred3 <- predict(logitTree,train2)
+#     pred4 <- predict(lda,train2)
+#     pred5 <- predict(xgb,train2)
+#     
+#     #stack predictions and compare
+#     predDF <- data.frame(pred1,pred2,pred3,pred4,pred5,Survived=train2$Survived)
+#     #combModelFit <- train(as.factor(Survived)~.,method="rf",data=predDF)
+#     #combPred <- predict(combModelFit,predDF)
+#     #predDF$comb <- combPred
+#     predDF$vote <- round(rowMeans(data.matrix(predDF[,which(colnames(predDF) != "Survived")])))-1
+#     caret::confusionMatrix(predDF$pred1,predDF$Survived)$overall
+#     caret::confusionMatrix(predDF$pred2,predDF$Survived)$overall
+#     caret::confusionMatrix(predDF$pred3,predDF$Survived)$overall
+#     caret::confusionMatrix(predDF$pred4,predDF$Survived)$overall
+#     caret::confusionMatrix(predDF$pred5,predDF$Survived)$overall
+#     caret::confusionMatrix(predDF$vote,predDF$Survived)$overall
+    
+    pred1 <- predict(forest,test)
+    pred2 <- predict(gboost,test)
+    pred3 <- predict(logitTree,test)
+    pred4 <- predict(lda,test)
+    pred5 <- predict(xgb,test)
+    
+    #Stack predictions and compare
+    predDF <- data.frame(pred1,pred2,pred3,pred4,pred5)
+    test$Survived <- round(rowMeans(data.matrix(predDF)))-1
+    
+    #Write submission to file
+    submission <- cbind(rawTest["PassengerId"],test["Survived"])
+    write.csv(submission,"~/Kaggle/Titanic/REnsemble.csv",row.names=FALSE)
     
 }
