@@ -12,13 +12,14 @@ require(FactoMineR)
 require(caret)
 require(RANN)
 require(kernlab)
+require(gridExtra)
 ```
 
 ##Exploratory Analysis
 
 The following is exploratory data analysis on the Rossman store sales challenge from Kaggle.
 
-```{r, echo=FALSE,cache=TRUE}
+```{r, echo=FALSE,cache=TRUE, message=FALSE}
 rossman <- read.csv("~/Kaggle/Rossman Sales/train.csv")
 store <- read.csv("~/Kaggle/Rossman Sales/store.csv")
 
@@ -49,15 +50,65 @@ rossman$Promo <- as.factor(rossman$Promo)
 rossman$Date <- as.Date(rossman$Date)
 rossman$SchoolHoliday <- as.factor(rossman$SchoolHoliday)
 
+#Get rid of open so as not to introduce bias for other variables
+rossman <- rossman[rossman$Open=="1",]
+
 #Test cleaning
 test <- read.csv("~/Kaggle/Rossman Sales/test.csv")
 test$DayOfWeek <- as.factor(test$DayOfWeek)
 test$Open <- as.factor(test$Open)
+test$Open[is.na(test$Open)]="1"
 test$Promo <- as.factor(test$Promo)
 test$Date <- as.Date(test$Date)
 test$SchoolHoliday <- as.factor(test$SchoolHoliday)
 
+#Train
+rossman$StoreType <- store$StoreType[rossman$Store]
+rossman$Assortment <- store$Assortment[rossman$Store]
+rossman$Year <- as.numeric(format(rossman$Date, "%Y"))
+rossman$Week <- as.numeric(format(rossman$Date, "%W"))
+rossman$Month <- as.numeric(format(rossman$Date, "%m"))
+rossman$CompetitionDistance <- log(store$CompetitionDistance[rossman$Store]+1)
+rossman$CompetitionQuant <- store$Quant[rossman$Store]
+rossman$Promo2 <- store$PromoInterval[rossman$Store]
+rossman$Christmas <- (rossman$Week>=48)&(rossman$Week<=50)
+
+#Test
+test$StoreType <- store$StoreType[test$Store]
+test$Assortment <- store$Assortment[test$Store]
+test$Year <- as.numeric(format(test$Date, "%Y"))
+test$Week <- as.numeric(format(test$Date, "%W"))
+test$Month <- as.numeric(format(test$Date, "%m"))
+test$CompetitionDistance <- log(store$CompetitionDistance[test$Store]+1)
+test$CompetitionQuant <- store$Quant[test$Store]
+test$Promo2 <- store$PromoInterval[test$Store]
+test$Christmas <- (test$Week>=48)&(test$Week<=50)
+
+salesByDay <- aggregate(Sales ~ DayOfWeek,rossman,mean)
+salesByWeek <- aggregate(Sales ~ Week,rossman,mean)
+salesByMonth <- aggregate(Sales ~ Month,rossman,mean)
+salesByYear <- aggregate(Sales ~ Year,rossman,mean)
+salesByStore <- aggregate(Sales ~ Store,rossman[rossman$Open=="1",],mean)
+salesByStoreType <- aggregate(Sales ~ StoreType,rossman,mean)
+salesByAssortment <- aggregate(Sales ~ Assortment,rossman,mean)
+salesByQuant <- aggregate(Sales ~ CompetitionQuant,rossman,mean)
+salesByPromo <- aggregate(Sales ~ Promo,rossman,mean)
+salesByPromo2 <- aggregate(Sales ~ Promo2,rossman,mean)
+salesByPromo2Week <- aggregate(Sales ~ Promo2+Week,rossman,mean)
+salesByPromo2Month <- aggregate(Sales ~ Promo2+Month,rossman,mean)
+salesByOpen <- aggregate(Sales ~ Open,rossman,mean)
+salesBySchool <- aggregate(Sales ~ SchoolHoliday,rossman,mean)
+salesByHoliday <- aggregate(Sales ~ StateHoliday,rossman,mean)
+
+promoByWeek <- aggregate(as.numeric(Promo) ~ Week, rossman,mean)
+
+#Mean sale
+rossman$MeanSale <- salesByStore[rossman$Store,2]
+test$MeanSale <- salesByStore[test$Store,2]
+
 ```
+
+\newpage
 
 First we will get of sense of what types of stores there are. There are really three groups of data included to describe stores: the type/assortment, the promotion involvement, and the competition. Features should be selected from these conceptual groups. Ultimately, it would be convenient to classify stores by these three groups.
 
@@ -74,16 +125,24 @@ Promo2SinceWeek/PromoInterval:
 
 Competition:
 
-
+* More sales for stores with closer competition
+* This is presumably because these are busier areas
 
 No associations between Store Type/Assortment, Promo participation, and competition.
 
-```{r, echo=FALSE,cache=TRUE}
-#Association between Store Type and Assortment
-ggplot(store,aes(Assortment,StoreType))+geom_point(position="jitter")
+```{r, echo=FALSE,cache=TRUE,message=FALSE}
+salesByQuant
+#Break stores into groups based on mean sales
+#Looks like groups should be: 0-2.5k,2.5k-5k,5k-7.5k,7.5k-10k,10k-15k,15k+
+orderedBySales <- order(salesByStore[,2])
+storesInOrder <- salesByStore[orderedBySales,1]
+qplot(seq(length(salesByStore[,1])),salesByStore[orderedBySales,2],xlab = "Store Rank by Sales", ylab="Sales",main="Sales of all Stores")
 
+#Association between Store Type and Assortment
+ggplot(store,aes(Assortment,StoreType))+geom_point(position="jitter")+ggtitle("Store Type vs. Assortment")
 
 ggplot(store,aes(Promo2SinceWeek)) + geom_density(aes(color=PromoInterval)) + ggtitle("Promo Year Densities per Store Type")
+
 ```
 
 \newpage
@@ -93,77 +152,69 @@ ggplot(store,aes(Promo2SinceWeek)) + geom_density(aes(color=PromoInterval)) + gg
 We will make the following additions to the sales data to aid in our predictions:
 
 * Store type and assortment
-* Promo2 at time of sale?
-* Promo2Interval started within one month?
-* Competition open at time of sale?
-* Competition distance quantile, if open
+* Promo2
+* Competition distance and quantile
+* Christmastime (weeks 48-50)
+* Mean sale of store
+
+Below we can see the effect of Christmas and Promo/Promo2 on sales.
 
 ```{r, echo=FALSE,cache=TRUE}
-#Train
-rossman$StoreType <- store$StoreType[rossman$Store]
-rossman$Assortment <- store$Assortment[rossman$Store]
-rossman$Year <- as.numeric(format(rossman$Date, "%Y"))
-rossman$Week <- as.numeric(format(rossman$Date, "%W"))
-rossman$Month <- as.numeric(format(rossman$Date, "%m"))
-#rossman$Promo2Now <- 
-#rossman$NewPromo <- 
-#rossman$CompetitionOpen <- 
-rossman$CompetitionDistance <- log(store$CompetitionDistance[rossman$Store]+1)
-rossman$CompetitionQuant <- store$Quant[rossman$Store]
-rossman$Promo2 <- store$PromoInterval[rossman$Store]
-
-#Test
-test$StoreType <- store$StoreType[test$Store]
-test$Assortment <- store$Assortment[test$Store]
-test$Year <- as.numeric(format(test$Date, "%Y"))
-test$Week <- as.numeric(format(test$Date, "%W"))
-test$Month <- as.numeric(format(test$Date, "%m"))
-#test$Promo2Now <- 
-#test$NewPromo <- 
-#test$CompetitionOpen <- 
-test$CompetitionDistance <- log(store$CompetitionDistance[test$Store]+1)
-test$CompetitionQuant <- store$Quant[test$Store]
-test$Promo2 <- store$PromoInterval[test$Store]
-
-#Seasonal fluctuations in sales
-ggplot(rossman,aes(Week,Sales))+geom_point(position="jitter",aes(col=Year),alpha=.1)
-
-salesByDay <- aggregate(Sales ~ DayOfWeek,rossman,mean)
-salesByWeek <- aggregate(Sales ~ Week,rossman,mean)
-salesByMonth <- aggregate(Sales ~ Month,rossman,mean)
-salesByYear <- aggregate(Sales ~ Year,rossman,mean)
-salesByStore <- aggregate(Sales ~ StoreType,rossman,mean)
-salesByAssortment <- aggregate(Sales ~ Assortment,rossman,mean)
-salesByQuant <- aggregate(Sales ~ CompetitionQuant,rossman,mean)
-salesByPromo <- aggregate(Sales ~ Promo,rossman,mean)
-salesByPromo2Week <- aggregate(Sales ~ Promo2+Week,rossman,mean)
-salesByPromo2Month <- aggregate(Sales ~ Promo2+Month,rossman,mean)
-salesByOpen <- aggregate(Sales ~ Open,rossman,mean)
-salesBySchool <- aggregate(Sales ~ SchoolHoliday,rossman,mean)
-salesByHoliday <- aggregate(Sales ~ StateHoliday,rossman,mean)
-
-promoByWeek <- aggregate(as.numeric(Promo) ~ Week, rossman,mean)
-
-#Sales per Month by Promo Interval
-ggplot(salesByPromo2Month,aes(Month,Sales)) + geom_line(aes(color=Promo2)) + ggtitle("Sales per Month by Promo Interval")+scale_x_discrete()
 
 #Promo's clear effect on sales
 g1 <- ggplot() + geom_line(data = salesByWeek, aes(x = Week, y = Sales))
 g2 <- ggplot() + geom_line(data = promoByWeek, aes(x = Week, y = `as.numeric(Promo)`))
 grid.arrange(g1,g2,nrow=2)
 
+#Sales per Month by Promo Interval
+ggplot(salesByPromo2Month,aes(Month,Sales)) + geom_line(aes(color=Promo2)) + ggtitle("Sales per Month by Promo Interval")+scale_x_discrete()
+
 ```
 
 \newpage
 
-##Patterns in sales
+##Looking at a individual stores
 
-* Most stores are closed on day 7, day 1 have best sales
-* Stores with closer competition have more sales (presumably busier areas)
-* Stores with promos have more sales
-* Stores with assortment b or type b have more sales
-* Sales are higher on school holidays, most stores closed on state holidays
-* Christmastime has best sales
-* Sales have increased every year
+At this point, we're ready to create a linear model based on the data we have. Below we can see how our model performs for individual stores. 
 
-Is it likely that best predictor is just previous weeks sales at same store, while avoiding state or school holidays? Maybe just impute values using k nearest neighbors?
+```{r, echo=FALSE,cache=TRUE, message=FALSE}
+
+mostStore <- rossman[rossman$Store==262,]
+leastStore <- rossman[rossman$Store==307,]
+
+# inTrain = createDataPartition(rossman$Sales, p = 1/100)[[1]]
+# training = rossman[ inTrain,]
+# testing = rossman[-inTrain,]
+
+#forest <- train(Sales~MeanSale+DayOfWeek+Promo+SchoolHoliday+StateHoliday+Christmas,method="rf",data=training)
+
+#Many variables and interactions significantly reduce variance
+model1 <- glm("Sales~MeanSale+Promo+DayOfWeek+Week+Year+Christmas+SchoolHoliday+StateHoliday+StoreType+Promo2",data=rossman)
+model2 <- update(model1, . ~ . + Promo*MeanSale+Promo*DayOfWeek+ Promo*Christmas+ Promo*SchoolHoliday+ Promo*StateHoliday+ Promo*StoreType+Promo*Promo2)
+model3 <- update(model2, . ~ . +DayOfWeek*Christmas+ DayOfWeek*SchoolHoliday+ DayOfWeek*MeanSale +DayOfWeek*Promo2+ MeanSale*SchoolHoliday+ MeanSale*Christmas+ MeanSale*StateHoliday+ MeanSale*StoreType)
+anova(model1,model2,model3,test="F")
+
+#qplot(predict(model3,rossman),rossman$Sales)
+#predGauss <- predict(model3,test)
+
+#Plotting glm predictions for certain stores
+mostStore$predSales <- predict(model3,mostStore)
+ggplot(mostStore) + geom_line(aes(Date,Sales)) + geom_line(aes(Date,predSales),color="red") + ggtitle("Sales for Highest Selling Store")+xlim(as.Date("2014-8-01"),as.Date("2014-10-31"))
+ 
+leastStore$predSales <- predict(model3,leastStore)
+ggplot(leastStore) + geom_line(aes(Date,Sales)) + geom_line(aes(Date,predSales),color="red") + ggtitle("Sales for Lowest Selling Store")+xlim(as.Date("2014-8-01"),as.Date("2014-10-31"))
+
+# uniqueStoreModel <- function(storeID){
+#     storeData <- rossman[rossman$Store==storeID,]
+#     glm("Sales~DayOfWeek+Promo+SchoolHoliday+Christmas+Month",data=storeData)
+# }
+ 
+# gaussModels <- lapply(seq(length(salesByStore[,1])),uniqueStoreModel)
+# #7 are mostly removed due to closures, so model can't handle them
+# predSales <- sapply(which(test$DayOfWeek!="7"),function(x){predict(gaussModels[[test[x,"Store"]]],test[x,])})
+# sundayClosedSales <- sapply(which((test$DayOfWeek=="7")&(test$Open==0)),function(x){0})
+# sundayOpenSales <-  sapply(which((test$DayOfWeek=="7")&(test$Open==1)),function(x){predict(gaussModels[[test[x,"Store"]]],test[x,])})
+# submission <- cbind(test["Id"],Sales=c(predSales,sundayClosedSales,sundayOpenSales))
+# write.csv(submission,"~/Kaggle/Rossman Sales/RGaussByStore.csv",row.names=FALSE)
+```
+
